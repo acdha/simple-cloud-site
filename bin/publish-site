@@ -1,0 +1,74 @@
+#!/usr/bin/env python
+
+from __future__ import absolute_import, print_function
+
+from ConfigParser import RawConfigParser
+import os
+import sys
+
+from libcloud.storage.types import Provider, ContainerDoesNotExistError
+from libcloud.storage.providers import get_driver
+
+IGNORE_DIRECTORIES = ['.git', '.hg', '.svn']
+
+
+def find_files(source_dir):
+    for root, dirs, files in os.walk(source_dir):
+        for f in files:
+            if f.startswith(".") or f.endswith("Makefile"):
+                continue
+
+            yield os.path.join(root, f)
+
+        for ignore in IGNORE_DIRECTORIES:
+            if ignore in dirs:
+                dirs.remove(ignore)
+
+
+
+def main():
+    config = RawConfigParser()
+    config.read([".simple-cloud-site.cfg"])
+    # TODO: enforce mode 600!
+
+    source_dir = os.path.realpath(os.curdir)
+
+    # TODO: allow provider configuration
+    container_name = config.get("site", "container")
+
+    print("Publishing %s to %s" % (source_dir, container_name))
+
+    CloudFiles = get_driver(Provider.CLOUDFILES_US)
+
+    driver = CloudFiles(config.get("auth", "username"),
+                        config.get("auth", "api-key"))
+
+    try:
+        container = driver.get_container(container_name=container_name)
+    except ContainerDoesNotExistError:
+        container = driver.create_container(container_name=container_name)
+        print("Created container %s. You may wish to configure it" % container_name, file=sys.stderr)
+
+    for f in find_files(source_dir):
+        target_path = f.replace(source_dir, '').lstrip("/")
+        print(target_path)
+
+        driver.upload_object(container=container, object_name=target_path, file_path=f,
+                             verify_hash=True)
+
+    driver.ex_enable_static_website(container=container, index_file='index.html')
+    driver.ex_set_error_page(container=container, file_name='error.html')
+    driver.enable_container_cdn(container=container)
+
+    print('CDN URL:', driver.get_container_cdn_url(container=container))
+
+if __name__ == "__main__":
+    try:
+        import bpdb as pdb
+    except ImportError:
+        import pdb
+
+    try:
+        main()
+    except:
+        pdb.pm()
