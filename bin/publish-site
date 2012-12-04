@@ -96,12 +96,4 @@ def main():
     print('CDN URL:', driver.get_container_cdn_url(container=container))
 
 if __name__ == "__main__":
-    try:
-        import bpdb as pdb
-    except ImportError:
-        import pdb
-
-    try:
-        main()
-    except:
-        pdb.post_mortem()
+    main()
