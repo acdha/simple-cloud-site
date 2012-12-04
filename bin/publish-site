@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from configparser import RawConfigParser
+from hashlib import md5
 from queue import Queue
 from threading import Thread
 import os
@@ -73,11 +74,21 @@ def main():
     workers = [Thread(target=upload_worker, args=(i, upload_queue, config, container_name))
                for i in range(8)]
 
+    remote_objects = {i.name: i.hash for i in container.list_objects()}
+
     for f in find_files(source_dir):
         target_path = f.replace(source_dir, '').lstrip("/")
 
-        upload_queue.put({'object_name': target_path, 'file_path': f,
-                          'verify_hash': True})
+        if target_path in remote_objects:
+            # TODO: don't read the file twice:
+            with open(f, "rb") as local_file:
+                h = md5()
+                for chunk in iter(lambda: local_file.read(8192), b''):
+                    h.update(chunk)
+                if h.hexdigest() == remote_objects[target_path]:
+                    continue
+
+        upload_queue.put({'object_name': target_path, 'file_path': f})
 
     print("Waiting for %d uploads to complete…" % upload_queue.qsize())
 
