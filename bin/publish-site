@@ -37,7 +37,8 @@ def get_driver_instance(config, container_name):
     """
 
     driver = CLOUDFILES(config.get("auth", "username"),
-                        config.get("auth", "api-key"))
+                        config.get("auth", "api-key"),
+                        ex_force_service_region=config.get("auth", "region"))
 
     try:
         container = driver.get_container(container_name=container_name)
