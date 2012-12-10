@@ -12,22 +12,9 @@ import sys
 from libcloud.storage.types import Provider, ContainerDoesNotExistError
 from libcloud.storage.providers import get_driver
 
-IGNORE_DIRECTORIES = ['.git', '.hg', '.svn']
+from simple_cloud_site.files import find_files
 
 CLOUDFILES = get_driver(Provider.CLOUDFILES_US)
-
-
-def find_files(source_dir):
-    for root, dirs, files in os.walk(source_dir):
-        for f in files:
-            if f.startswith(".") or f.endswith("Makefile"):
-                continue
-
-            yield os.path.join(root, f)
-
-        for ignore in IGNORE_DIRECTORIES:
-            if ignore in dirs:
-                dirs.remove(ignore)
 
 
 def get_driver_instance(config, container_name):
