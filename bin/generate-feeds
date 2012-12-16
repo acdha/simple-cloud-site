@@ -1,0 +1,239 @@
+#!/usr/bin/env python
+# encoding: utf-8
+from __future__ import absolute_import, print_function, unicode_literals
+
+from collections import deque, namedtuple
+from configparser import RawConfigParser
+from datetime import datetime, timezone
+from email.utils import format_datetime
+from urllib.parse import urljoin
+from warnings import warn
+import os
+import sys
+
+from dateutil.parser import parse as parse_date
+
+from lxml import etree, html, objectify
+
+from simple_cloud_site.files import find_html_files
+from simple_cloud_site.html import lxml_inner_html
+
+TITLE_XPATHS = [etree.XPath(i) for i in ('//*[@itemprop="title"]/text()', 'head/title/text()')]
+
+DESCRIPTION_XPATHS = [etree.XPath(i) for i in ('//*[@itemprop="description"]/text()',
+                                               'head/meta[@name="description"]/@content')]
+
+TIMESTAMP_XPATHS = [etree.XPath(i) for i in ('//*[@itemprop="dateModified"]/@datetime',
+                                             '//*[@itemprop="datePublished"]/@datetime',
+                                             '//*[@itemprop="dateCreated"]/@datetime')]
+
+
+
+FeedPage = namedtuple('FeedPage', 'url last_modified title description content')
+
+
+class Feed(object):
+    def __init__(self, metadata):
+        self.pages = deque()
+        self.metadata = metadata
+
+    def add_page(self, url, html, **info):
+        last_modified = info.get('last_modified')
+
+        # Ensure that we can sort these simply later by using a numeric value:
+        if last_modified:
+            last_modified = last_modified.timestamp()
+        else:
+            last_modified = 0
+
+        # content will only be set on Atom feeds:
+        info.setdefault('content', '')
+
+        self.pages.append((last_modified, FeedPage(url, **info)))
+
+    def serialize(self):
+        raise NotImplementedError
+
+
+class Sitemap(Feed):
+    def serialize(self):
+        E = objectify.ElementMaker(annotate=False,
+                                   namespace='http://www.sitemaps.org/schemas/sitemap/0.9',
+                                   nsmap={None: 'http://www.sitemaps.org/schemas/sitemap/0.9'})
+
+        urlset = E.urlset()
+
+        for last_mod, info in self.pages:
+            url_elem = E.url(E.loc(info.url))
+            if last_mod:
+                url_elem.append(E.lastmod(info.last_modified.isoformat()))
+            urlset.append(url_elem)
+
+        return etree.tostring(urlset, pretty_print=True, encoding='utf-8')
+
+
+class RSS(Feed):
+    def add_page(self, url, html, **info):
+        if not info.get('title'):
+            warn("Skipping %s: missing title" % url)
+            return
+
+        if not info.get('last_modified'):
+            warn("%s: missing last modified timestamp" % url)
+
+        super().add_page(url, html, **info)
+
+    def serialize(self):
+        E = objectify.ElementMaker(annotate=False, nsmap={"atom": "http://www.w3.org/2005/Atom"})
+
+        channel = E.channel(E.title(self.metadata['site_title']),
+                            E.link(self.metadata['site_url']),
+                            E.description(self.metadata['site_description']))
+
+        channel.append(etree.Element("{http://www.w3.org/2005/Atom}link", rel="self",
+                                     href=urljoin(self.metadata['site_url'], "/feeds/all.atom")))
+
+        for last_mod, info in sorted(self.pages, key=lambda i: i[0], reverse=True)[:10]:
+            item = E.item(E.title(info.title), E.link(info.url),
+                          E.guid(info.url, isPermaLink="true"))
+
+            if info.description:
+                item.append(E.description(info.description))
+
+            if info.last_modified:
+                item.append(E.pubDate(format_datetime(info.last_modified)))
+
+            channel.append(item)
+
+        rss = E.rss(channel, version="2.0")
+
+        return etree.tostring(rss, pretty_print=True, encoding='utf-8', xml_declaration=True)
+
+
+class Atom(RSS):
+    def add_page(self, url, html, **info):
+        article_body = html.xpath('//*[@itemprop="articleBody"]')
+        if article_body:
+            info['content'] = lxml_inner_html(article_body[0])
+
+        super().add_page(url, html, **info)
+
+    def serialize(self):
+        E = objectify.ElementMaker(annotate=False, nsmap={None: "http://www.w3.org/2005/Atom"})
+
+        feed = E.feed(E.title(self.metadata['site_title']),
+                      E.id(self.metadata['site_url']),
+                      E.link(rel="self", href=urljoin(self.metadata['site_url'], "/feeds/all.atom")),
+                      E.subtitle(self.metadata['site_description']),
+                      E.author(E.name(self.metadata['author_name']),
+                               E.email(self.metadata['author_email'])))
+
+        pages = sorted(self.pages, key=lambda i: i[0], reverse=True)
+
+        feed.append(E.updated(pages[0][1].last_modified.isoformat()))
+
+        for last_mod, info in pages[:10]:
+            entry = E.entry(E.title(info.title), E.id(info.url), E.link(href=info.url))
+
+            if info.description:
+                entry.append(E.summary(info.description))
+
+            if info.content:
+                entry.append(E.content(info.content, type="html"))
+
+            if info.last_modified:
+                entry.append(E.updated(info.last_modified.isoformat()))
+
+            feed.append(entry)
+
+        return etree.tostring(feed, pretty_print=True, encoding='utf-8', xml_declaration=True)
+
+
+def extract_title(html):
+    for xpath in TITLE_XPATHS:
+        res = xpath(html)
+        if res:
+            return res[0].strip()
+
+
+def extract_description(html):
+    for xpath in DESCRIPTION_XPATHS:
+        res = xpath(html)
+        if res:
+            return res[0].strip()
+
+
+def extract_last_modified(html):
+    for xpath in TIMESTAMP_XPATHS:
+        res = xpath(html)
+        if res:
+            return parse_date(res[0])
+
+    meta_equiv = html.xpath('/head/meta[@http-equiv="last-modified"]/@content')
+    if meta_equiv:
+        return datetime.strptime(meta_equiv, "%a, %d %b %Y %H:%M:%S %z")
+
+
+def main():
+    config = RawConfigParser()
+    config.read([".simple-cloud-site.cfg"])
+
+    source_dir = os.path.realpath(os.curdir)
+    base_url = config.get('site', 'base_url')
+
+    site_info = {
+        'site_url': base_url,
+        'site_title': config.get('site', 'site_title'),
+        'site_description': config.get('site', 'site_description'),
+        'author_name': config.get('author', 'name'),
+        'author_email': config.get('author', 'email'),
+    }
+
+    sitemap = Sitemap(site_info)
+    rss = RSS(site_info)
+    atom = Atom(site_info)
+
+    parser = etree.HTMLParser(encoding='utf-8')
+
+    urls = []
+    for f in find_html_files(source_dir):
+        path = os.path.relpath(f, start=source_dir)
+        if path.endswith("index.html"):
+            path = '%s/' % os.path.dirname(path)
+
+        if path == '/':
+            continue  # Skip the index page
+
+        url = urljoin(base_url, path)
+
+        timestamp = None  # Fall back to file mtime? Seems noisy…
+        title = description = None
+
+        h = html.parse(f, parser=parser)
+
+        title = extract_title(h)
+        description = extract_description(h)
+        timestamp = extract_last_modified(h)
+
+        if timestamp:
+            if timestamp.tzinfo:
+                timestamp = timestamp.astimezone(timezone.utc)
+            else:
+                warn("%s: extracted last modified time without a timezone: %s" % (f, timestamp))
+
+        sitemap.add_page(url, h, last_modified=timestamp, title=title, description=description)
+        rss.add_page(url, h, last_modified=timestamp, title=title, description=description)
+        atom.add_page(url, h, last_modified=timestamp, title=title, description=description)
+
+    with open('sitemap.xml', 'wb') as f:
+        f.write(sitemap.serialize())
+
+    with open('feeds/all.rss', 'wb') as f:
+        f.write(rss.serialize())
+
+    with open('feeds/all.atom', 'wb') as f:
+        f.write(atom.serialize())
+
+
+if __name__ == "__main__":
+    main()
