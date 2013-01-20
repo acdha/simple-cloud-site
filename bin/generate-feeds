@@ -209,6 +209,8 @@ def main():
         timestamp = None  # Fall back to file mtime? Seems noisy…
         title = description = None
 
+        # lxml is buggy and will interpret all files as latin-1, even when Python 3 has nicely
+        # decoded them into correct objects. See https://bugs.launchpad.net/lxml/+bug/898072
         h = html.parse(f, parser=parser)
 
         title = extract_title(h)
