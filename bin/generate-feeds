@@ -11,22 +11,12 @@ from warnings import warn
 import os
 import sys
 
-from dateutil.parser import parse as parse_date
-
 from lxml import etree, html, objectify
 
 from simple_cloud_site.files import find_html_files
-from simple_cloud_site.html import lxml_inner_html
-
-TITLE_XPATHS = [etree.XPath(i) for i in ('//*[@itemprop="title"]/text()', 'head/title/text()')]
-
-DESCRIPTION_XPATHS = [etree.XPath(i) for i in ('//*[@itemprop="description"]/text()',
-                                               'head/meta[@name="description"]/@content')]
-
-TIMESTAMP_XPATHS = [etree.XPath(i) for i in ('//*[@itemprop="dateModified"]/@datetime',
-                                             '//*[@itemprop="datePublished"]/@datetime',
-                                             '//*[@itemprop="dateCreated"]/@datetime')]
-
+from simple_cloud_site.html import (lxml_inner_html, parse_html,
+                                    extract_title, extract_description,
+                                    extract_last_modified)
 
 
 FeedPage = namedtuple('FeedPage', 'url last_modified title description content')
@@ -149,31 +139,6 @@ class Atom(RSS):
         return etree.tostring(feed, pretty_print=True, encoding='utf-8', xml_declaration=True)
 
 
-def extract_title(html):
-    for xpath in TITLE_XPATHS:
-        res = xpath(html)
-        if res:
-            return res[0].strip()
-
-
-def extract_description(html):
-    for xpath in DESCRIPTION_XPATHS:
-        res = xpath(html)
-        if res:
-            return res[0].strip()
-
-
-def extract_last_modified(html):
-    for xpath in TIMESTAMP_XPATHS:
-        res = xpath(html)
-        if res:
-            return parse_date(res[0])
-
-    meta_equiv = html.xpath('/head/meta[@http-equiv="last-modified"]/@content')
-    if meta_equiv:
-        return datetime.strptime(meta_equiv, "%a, %d %b %Y %H:%M:%S %z")
-
-
 def main():
     config = RawConfigParser()
     config.read([".simple-cloud-site.cfg"])
@@ -193,8 +158,6 @@ def main():
     rss = RSS(site_info)
     atom = Atom(site_info)
 
-    parser = etree.HTMLParser(encoding='utf-8')
-
     urls = []
     for f in find_html_files(source_dir):
         path = os.path.relpath(f, start=source_dir)
@@ -209,19 +172,11 @@ def main():
         timestamp = None  # Fall back to file mtime? Seems noisy…
         title = description = None
 
-        # lxml is buggy and will interpret all files as latin-1, even when Python 3 has nicely
-        # decoded them into correct objects. See https://bugs.launchpad.net/lxml/+bug/898072
-        h = html.parse(f, parser=parser)
+        h = parse_html(f)
 
         title = extract_title(h)
         description = extract_description(h)
         timestamp = extract_last_modified(h)
-
-        if timestamp:
-            if timestamp.tzinfo:
-                timestamp = timestamp.astimezone(timezone.utc)
-            else:
-                warn("%s: extracted last modified time without a timezone: %s" % (f, timestamp))
 
         sitemap.add_page(url, h, last_modified=timestamp, title=title, description=description)
         rss.add_page(url, h, last_modified=timestamp, title=title, description=description)
