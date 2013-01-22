@@ -2,9 +2,12 @@
 # encoding: utf-8
 from __future__ import absolute_import, print_function, unicode_literals
 
+from collections import deque
 import os
 
-IGNORE_DIRECTORIES = ['.git', '.hg', '.svn']
+from .html import parse_html, is_blog_post, extract_last_modified
+
+IGNORE_DIRECTORIES = ['.git', '.hg', '.svn', '_templates']
 
 
 def find_files(source_dir):
@@ -33,3 +36,24 @@ def find_html_files(source_dir):
     for f in find_files(source_dir):
         if f.endswith(".html"):
             yield f
+
+
+def find_recent_pages(source_dir, count=8):
+    """Returns a list of recent content pages"""
+
+    pages = deque()
+
+    for f in find_html_files(source_dir):
+        h = parse_html(f)
+
+        if not is_blog_post(h):
+            continue
+
+        d = extract_last_modified(h)
+
+        pages.append((d, f))
+
+        if len(pages) > 20:
+            break
+
+    return sorted(pages, reverse=True)[0:count]

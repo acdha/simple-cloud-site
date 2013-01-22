@@ -48,6 +48,13 @@ def lxml_inner_html(elem):
     return ''.join(filter(None, html))
 
 
+BLOG_POST_XPATHS = [XPath(i) for i in ('/html/body[@itemtype="http://schema.org/BlogPosting"]', )]
+# TODO: Use custom xpath / CSS checks from config file?
+
+def is_blog_post(html):
+    return any(i(html) for i in BLOG_POST_XPATHS)
+
+
 TITLE_XPATHS = [XPath(i) for i in ('//*[@itemprop="title"]/text()', 'head/title/text()')]
 
 
