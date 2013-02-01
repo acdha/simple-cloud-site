@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
+from subprocess import Popen, PIPE
 import os
+import sys
 
 from lxml.html import tostring
 
@@ -23,8 +25,21 @@ def main():
     # sanity check placeholders
 
     with open('index.html', 'wb') as f:
-        # FIXME: non-uglifying lxml pretty-printer…
-        f.write(tostring(template, encoding="utf-8", method="html", pretty_print=True))
+        f.write(tostring(template, encoding="utf-8", method="html"))
+
+    # This is an ugly travesty and depends on https://github.com/w3c/tidy-html5
+    # In its defense, it actually works at all which is more than can be said for html5lib, lxml3,
+    # BeautifulSoup, etc. and there are no Python 3 migration issues…
+    tidy = Popen(['tidy-html5', '-utf8', '-modify', '-quiet', '--tidy-mark', 'no',
+                  '--wrap', '0', '--indent', 'yes', '--indent-spaces', '4',
+                  'index.html'],
+                  stderr=PIPE, stdout=PIPE)
+    stdout, stderr = tidy.communicate()
+
+    if tidy.returncode or stderr:
+        stderr = stderr.decode("utf-8").strip()
+        stderr = "\n".join("\t%s" % i.strip() for i in stderr.splitlines())
+        print("HTML tidy reported problems:\n", stderr, file=sys.stderr)
 
     # TODO: Repeat for sub directories?
 
