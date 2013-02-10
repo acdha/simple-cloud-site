@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from functools import wraps
 from warnings import warn
 
-from lxml.etree import HTMLParser, XPath
-from lxml.html import tostring, parse as _html_parse
+from lxml.etree import XPath
+from lxml.html import tostring, HTMLParser, parse as _html_parse
 from dateutil.parser import parse as parse_date
 
 UTF8_PARSER = HTMLParser(encoding='utf-8')

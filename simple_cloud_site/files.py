@@ -53,7 +53,4 @@ def find_recent_pages(source_dir, count=8):
 
         pages.append((d, f))
 
-        if len(pages) > 20:
-            break
-
-    return sorted(pages, reverse=True)[0:count]
+    return sorted(pages, reverse=True)[:count]
