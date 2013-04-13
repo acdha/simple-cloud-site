@@ -25,7 +25,7 @@ def main():
 
     template.find('title').text("Chris Adams’ blog")  # BUG: Read default title from the config file? Current index.html?
 
-    post_list = template.find('.post-list.placeholder').removeClass("placeholder")
+    post_list = template.find('.post-list').removeClass("placeholder")
     post_template = post_list.children().eq(0).clone().removeClass("placeholder")
     post_list.empty()
 
@@ -40,14 +40,13 @@ def main():
 
         # TODO: Add attribute selector support to PyQuery
         # TODO: Abstract mining / replacement calls into utility functions
-        p.find('a.title.placeholder').removeClass('placeholder') \
+        p.find('a.title').removeClass('placeholder') \
             .attr('href', uri) \
             .text(post_source.xpath('//*[@itemprop="title"]|title')[0].text.strip())
 
-        p.find('.date.placeholder').removeClass('placeholder') \
+        p.find('.date').removeClass('placeholder') \
             .text(post_date.strftime('%b %d')) \
-            .attr("datetime", post_date.isoformat()) \
-            .attr("title", post_date.isoformat())
+            .attr("datetime", post_date.isoformat())
 
         summary = post_source.cssselect('.summary')
         if summary:
