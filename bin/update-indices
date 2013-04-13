@@ -8,16 +8,17 @@ import sys
 from lxml.html import tostring
 from pyquery import PyQuery
 
-from simple_cloud_site.files import find_recent_pages
+from simple_cloud_site.files import find_recent_posts
 from simple_cloud_site.html import parse_html, lxml_inner_html
 
 
 def main():
+    # TODO: refactor to use site settings site-root function
     source_dir = os.path.realpath(os.curdir)
 
     print("Updating indices under", source_dir)
 
-    recent_posts = find_recent_pages(source_dir, count=4)
+    recent_posts = find_recent_posts(source_dir, count=4)
 
     # TODO: read template name from a config file
     template = PyQuery(parse_html("_templates/index.html").getroot())

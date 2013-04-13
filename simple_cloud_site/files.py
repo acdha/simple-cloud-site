@@ -3,6 +3,7 @@
 from __future__ import absolute_import, print_function, unicode_literals
 
 from collections import deque
+from functools import lru_cache
 import os
 
 from .html import parse_html, is_blog_post, extract_last_modified
@@ -38,8 +39,9 @@ def find_html_files(source_dir):
             yield f
 
 
-def find_recent_pages(source_dir, count=8):
-    """Returns a list of recent content pages"""
+@lru_cache(maxsize=None)
+def find_blog_posts(source_dir):
+    """Returns a list of HTML files which are blog posts"""
 
     pages = deque()
 
@@ -52,5 +54,13 @@ def find_recent_pages(source_dir, count=8):
         d = extract_last_modified(h)
 
         pages.append((d, f))
+
+    return pages
+
+
+def find_recent_posts(source_dir, count=8):
+    """Returns a list of recent content pages"""
+
+    pages = find_blog_posts(source_dir)
 
     return sorted(pages, reverse=True)[:count]
