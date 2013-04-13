@@ -1,62 +1,56 @@
 #!/usr/bin/env python
 
-from copy import deepcopy
-from subprocess import Popen, PIPE
-import os
 import sys
 
 from lxml.html import tostring
 from pyquery import PyQuery
 
 from simple_cloud_site.files import find_recent_posts
-from simple_cloud_site.html import parse_html, lxml_inner_html
+from simple_cloud_site.html import parse_html, lxml_inner_html, tidy
+from simple_cloud_site.site import load_site
 
 
 def main():
-    # TODO: refactor to use site settings site-root function
-    source_dir = os.path.realpath(os.curdir)
+    site = load_site()
 
-    print("Updating indices under", source_dir)
+    print("Updating indices under", site.base_dir)
 
-    recent_posts = find_recent_posts(source_dir, count=4)
+    recent_posts = find_recent_posts(site.base_dir, count=4)
 
     # TODO: read template name from a config file
     template = PyQuery(parse_html("_templates/index.html").getroot())
 
-    template.find('title').text("Chris Adams’ blog")  # BUG: Read default title from the config file? Current index.html?
+    template.find('title').text(site.config.get('site', 'site_title'))
 
     post_list = template.find('.post-list').removeClass("placeholder")
     post_template = post_list.children().eq(0).clone().removeClass("placeholder")
     post_list.empty()
 
-    for post_date, filename in recent_posts:
+    for post in recent_posts:
         p = post_template.clone()
 
-        post_source = parse_html(filename).getroot()
+        uri = site.filename_to_url(post.filename)
 
-        uri = filename.replace(source_dir, '').replace('index.html', '')
+        html = post.html.getroot()
+        html.make_links_absolute(uri)
 
-        post_source.make_links_absolute(uri)
-
-        # TODO: Add attribute selector support to PyQuery
-        # TODO: Abstract mining / replacement calls into utility functions
         p.find('a.title').removeClass('placeholder') \
             .attr('href', uri) \
-            .text(post_source.xpath('//*[@itemprop="title"]|title')[0].text.strip())
+            .text(post.title)
 
+        post_date = post.get_publication_date()
         p.find('.date').removeClass('placeholder') \
             .text(post_date.strftime('%b %d')) \
             .attr("datetime", post_date.isoformat())
 
-        summary = post_source.cssselect('.summary')
+        summary = html.cssselect('.summary')
         if summary:
-            p.find('.summary').removeClass('placeholder').empty().append(lxml_inner_html(summary[0]))
+            p.find('.summary').removeClass('placeholder').html(lxml_inner_html(summary[0]).strip())
         else:
             p.find('.summary').remove()
 
         p.find('.body').removeClass('placeholder') \
-            .empty() \
-            .append(lxml_inner_html(post_source.xpath('//*[@itemprop="articleBody"]')[0]))
+            .html(post.articleBody)
 
         p.appendTo(post_list)
 
@@ -68,19 +62,7 @@ def main():
         # We don't use template.outerHtml because that would lose the doctype
         f.write(tostring(template[0].getroottree(), method='html', encoding='utf-8'))
 
-    # This is an ugly travesty and depends on https://github.com/w3c/tidy-html5
-    # In its defense, it actually works at all which is more than can be said for html5lib, lxml3,
-    # BeautifulSoup, etc. and there are no Python 3 migration issues…
-    tidy = Popen(['tidy-html5', '-utf8', '-modify', '-quiet', '--tidy-mark', 'no',
-                  '--wrap', '0', '--indent', 'yes', '--indent-spaces', '4',
-                  'index.html'],
-                  stderr=PIPE, stdout=PIPE)
-    stdout, stderr = tidy.communicate()
-
-    if stderr:
-        stderr = stderr.decode("utf-8").strip()
-        stderr = "\n".join("\t%s" % i.strip() for i in stderr.splitlines())
-        print("HTML tidy reported problems:\n", stderr, file=sys.stderr)
+    tidy("index.html")
 
     # TODO: Repeat for sub directories?
 

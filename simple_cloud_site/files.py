@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # encoding: utf-8
 from __future__ import absolute_import, print_function, unicode_literals
 
@@ -6,7 +5,7 @@ from collections import deque
 from functools import lru_cache
 import os
 
-from .html import parse_html, is_blog_post, extract_last_modified
+from .html import Page
 
 IGNORE_DIRECTORIES = ['.git', '.hg', '.svn', '_templates']
 
@@ -46,14 +45,12 @@ def find_blog_posts(source_dir):
     pages = deque()
 
     for f in find_html_files(source_dir):
-        h = parse_html(f)
+        p = Page(f)
 
-        if not is_blog_post(h):
+        if not p.is_blog_post:
             continue
-
-        d = extract_last_modified(h)
-
-        pages.append((d, f))
+        else:
+            pages.append(p)
 
     return pages
 
@@ -63,4 +60,4 @@ def find_recent_posts(source_dir, count=8):
 
     pages = find_blog_posts(source_dir)
 
-    return sorted(pages, reverse=True)[:count]
+    return sorted(pages, reverse=True, key=lambda p: p.date_modified)[:count]

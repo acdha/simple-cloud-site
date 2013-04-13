@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-from copy import deepcopy
-from subprocess import Popen, PIPE, check_call
+from datetime import timezone
+from warnings import warn
 import argparse
 import os
 import sys
@@ -9,43 +9,44 @@ import sys
 from lxml.html import tostring
 from pyquery import PyQuery
 
-from dateutil.parser import parse as parse_date
-
 from simple_cloud_site.files import find_blog_posts
-from simple_cloud_site.html import parse_html, lxml_inner_html, extract_last_modified
+from simple_cloud_site.html import Page, parse_html, tidy
+from simple_cloud_site.site import load_site
 
 
-def update_template(template_file, filename):
-    # TODO: refactor to use site settings site-root function
-    source_dir = os.path.realpath(os.curdir)
-    all_posts = find_blog_posts(source_dir)
-
+def update_template(template_file, filename, site, blog_posts=None):
     template = PyQuery(parse_html(template_file).getroot())
-    original = PyQuery(parse_html(filename).getroot())
+    original_post = Page(filename)
+    original = PyQuery(original_post.html.getroot())
 
-    # TODO: Fix PyQuery attribute selectors:
-    title = (original('*[@itemprop="title"]') + original('title')).eq(0).text().strip()
-    template('title,*[itemprop="title"]').removeClass('placeholder').text(title)
+    template('title,*[itemprop="title"]').removeClass('placeholder').text(original_post.title)
 
     # TODO: Reconcile PyQuery/lxml overlap
-    # TODO: Refactor date logic into a page class
 
-    # TODO: Normalize timestamps!
-    lastMod = original('*[itemprop="dateModified"]').attr('datetime') or \
-              original('*[itemprop="datePublished"]').attr('datetime') or \
-              original('*[itemprop="dateCreated"]').attr('datetime')
-
-    lastMod = parse_date(lastMod) if lastMod else None
+    # FIXME: optionally set date created / modified / published
 
     for i in ('dateCreated', 'dateModified', 'datePublished'):
         j = original('*[itemprop="%s"]' % i)
         if j:
             template('*[itemprop="%s"]' % i).attr('datetime', j.attr('datetime'))
 
-    if lastMod:
+    post_date = original_post.get_publication_date()
+
+    if post_date:
+        # TODO: make post date format configurable
         template('.date').removeClass('placeholder') \
-            .text(lastMod.strftime('%b %d')) \
-            .attr("datetime", lastMod.isoformat())
+            .text(post_date.strftime('%b %d')) \
+            .attr("datetime", post_date.isoformat())
+    else:
+        template('.date').text('UNPUBLISHED')
+
+    last_modified = original_post.last_modified
+    if last_modified:
+        template('meta[http-equiv="last-modified"]') \
+            .attr('content', last_modified.astimezone(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT"))
+    else:
+        warn("Could not extract last modification time from %s" % filename)
+        template('meta[http-equiv="last-modified"]').remove()
 
     summary = original('.summary').eq(0)
     if summary:
@@ -53,11 +54,37 @@ def update_template(template_file, filename):
     else:
         template('.summary').remove()
 
-    template('.body').removeClass('placeholder') \
+    template('*[itemprop="articleBody"]').removeClass('placeholder') \
         .empty() \
-        .append(original('*[itemprop="articleBody"]'))
+        .append(original('*[itemprop="articleBody"]').children())
 
-    template('meta[name="description"]').attr('content', original('meta[name="description"]').attr('content') or summary.text() or "")
+    template('meta[name="description"]').attr('content', original_post.description or summary.text() or "")
+
+    post_nav = template('#post-nav')
+    if not blog_posts:
+        post_nav.remove()
+    else:
+        prev_post = next_post = None
+
+        for post in blog_posts:
+            if post.date_published < post_date and (not prev_post or post.date_published > prev_post.date_published):
+                prev_post = post
+            elif post.date_published > post_date and (not next_post or post.date_published < next_post.date_published):
+                next_post = post
+
+        if not prev_post:
+            post_nav(".previous").remove()
+        else:
+            post_nav(".previous").removeClass('placeholder') \
+                .attr("href", site.filename_to_url(prev_post.filename)) \
+                .text(prev_post.title)
+
+        if not next_post:
+            post_nav(".next").remove()
+        else:
+            post_nav(".next").removeClass('placeholder') \
+                .attr("href", site.filename_to_url(next_post.href)) \
+                .text(next_post.title)
 
     # Clean bogon classes (see https://github.com/gawel/pyquery/issues/23)
     template('*[class=""]').removeAttr("class")
@@ -65,38 +92,25 @@ def update_template(template_file, filename):
     orphans = template.find(".placeholder")
     if orphans:
         print("Template contained unexpanded placeholders:", orphans, file=sys.stderr)
-        # return
 
     with open(filename, 'wb') as f:
         # We don't use template.outerHtml because that would lose the doctype
         f.write(tostring(template[0].getroottree(), method='html', encoding='utf-8'))
 
-    # This is an ugly travesty and depends on https://github.com/w3c/tidy-html5
-    # In its defense, it actually works at all which is more than can be said for html5lib, lxml3,
-    # BeautifulSoup, etc. and there are no Python 3 migration issues…
-    tidy = Popen(['tidy-html5', '-utf8', '-modify', '-quiet', '--tidy-mark', 'no',
-                  '--wrap', '0', '--indent', 'yes', '--indent-spaces', '4',
-                  filename],
-                  stderr=PIPE, stdout=PIPE)
-    stdout, stderr = tidy.communicate()
-
-    if stderr:
-        stderr = stderr.decode("utf-8").strip()
-        stderr = "\n".join("\t%s" % i.strip() for i in stderr.splitlines())
-        print("HTML tidy reported problems for %s:\n" % filename, stderr, file=sys.stderr)
-
-    check_call(['perl', '-p', '-i', '-e', 's|itemscope=""|itemscope|', filename])
-    # See: https://github.com/w3c/tidy-html5/pull/58
+    tidy(filename)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Apply a template to an HTML file')
     parser.add_argument('files', metavar="HTML", nargs="*")
     parser.add_argument('--template', default="_templates/post.html",
-                       help='Template filename (default: %(default)s)')
+                        help='Template filename (default: %(default)s)')
     args = parser.parse_args()
 
     if not os.path.exists(args.template):
         parser.error("%s does not exist" % args.template)
 
+    site = load_site()
+    blog_posts = find_blog_posts(site.base_dir)
+
     for f in args.files:
-        update_template(args.template, f)
+        update_template(args.template, f, site, blog_posts=blog_posts)

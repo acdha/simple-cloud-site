@@ -2,24 +2,16 @@
 # encoding: utf-8
 from __future__ import absolute_import, print_function, unicode_literals
 
-from collections import deque, namedtuple
-from configparser import RawConfigParser
-from datetime import datetime, timezone
+from collections import deque
 from email.utils import format_datetime
 from urllib.parse import urljoin
 from warnings import warn
-import os
-import sys
 
-from lxml import etree, html, objectify
+from lxml import etree, objectify
 
 from simple_cloud_site.files import find_html_files
-from simple_cloud_site.html import (lxml_inner_html, parse_html,
-                                    extract_title, extract_description,
-                                    extract_last_modified)
-
-
-FeedPage = namedtuple('FeedPage', 'url last_modified title description content')
+from simple_cloud_site.html import Page
+from simple_cloud_site.site import load_site
 
 
 class Feed(object):
@@ -27,19 +19,14 @@ class Feed(object):
         self.pages = deque()
         self.metadata = metadata
 
-    def add_page(self, url, html, **info):
-        last_modified = info.get('last_modified')
-
-        # Ensure that we can sort these simply later by using a numeric value:
-        if last_modified:
-            last_modified = last_modified.timestamp()
-        else:
+    def add_page(self, url, page):
+        # Ensure that the values are always sortable numbers:
+        if not page.last_modified:
             last_modified = 0
+        else:
+            last_modified = page.last_modified.timestamp()
 
-        # content will only be set on Atom feeds:
-        info.setdefault('content', '')
-
-        self.pages.append((last_modified, FeedPage(url, **info)))
+        self.pages.append((last_modified, url, page))
 
     def serialize(self):
         raise NotImplementedError
@@ -53,25 +40,25 @@ class Sitemap(Feed):
 
         urlset = E.urlset()
 
-        for last_mod, info in self.pages:
-            url_elem = E.url(E.loc(info.url))
+        for last_mod, url, page in self.pages:
+            url_elem = E.url(E.loc(url))
             if last_mod:
-                url_elem.append(E.lastmod(info.last_modified.isoformat()))
+                url_elem.append(E.lastmod(page.last_modified.isoformat()))
             urlset.append(url_elem)
 
         return etree.tostring(urlset, pretty_print=True, encoding='utf-8')
 
 
 class RSS(Feed):
-    def add_page(self, url, html, **info):
-        if not info.get('title'):
+    def add_page(self, url, page):
+        if not page.title:
             warn("Skipping %s: missing title" % url)
             return
 
-        if not info.get('last_modified'):
+        if not page.last_modified:
             warn("%s: missing last modified timestamp" % url)
 
-        super().add_page(url, html, **info)
+        super().add_page(url, page)
 
     def serialize(self):
         E = objectify.ElementMaker(annotate=False, nsmap={"atom": "http://www.w3.org/2005/Atom"})
@@ -83,15 +70,15 @@ class RSS(Feed):
         channel.append(etree.Element("{http://www.w3.org/2005/Atom}link", rel="self",
                                      href=urljoin(self.metadata['site_url'], "/feeds/all.atom")))
 
-        for last_mod, info in sorted(self.pages, key=lambda i: i[0], reverse=True)[:10]:
-            item = E.item(E.title(info.title), E.link(info.url),
-                          E.guid(info.url, isPermaLink="true"))
+        for last_mod, url, page in sorted(self.pages, key=lambda i: i[0], reverse=True)[:10]:
+            item = E.item(E.title(page.title), E.link(url),
+                          E.guid(url, isPermaLink="true"))
 
-            if info.description:
-                item.append(E.description(info.description))
+            if page.description:
+                item.append(E.description(page.description))
 
-            if info.last_modified:
-                item.append(E.pubDate(format_datetime(info.last_modified)))
+            if page.last_modified:
+                item.append(E.pubDate(format_datetime(page.last_modified)))
 
             channel.append(item)
 
@@ -101,13 +88,6 @@ class RSS(Feed):
 
 
 class Atom(RSS):
-    def add_page(self, url, html, **info):
-        article_body = html.xpath('//*[@itemprop="articleBody"]')
-        if article_body:
-            info['content'] = lxml_inner_html(article_body[0])
-
-        super().add_page(url, html, **info)
-
     def serialize(self):
         E = objectify.ElementMaker(annotate=False, nsmap={None: "http://www.w3.org/2005/Atom"})
 
@@ -120,19 +100,19 @@ class Atom(RSS):
 
         pages = sorted(self.pages, key=lambda i: i[0], reverse=True)
 
-        feed.append(E.updated(pages[0][1].last_modified.isoformat()))
+        feed.append(E.updated(pages[0][2].last_modified.isoformat()))
 
-        for last_mod, info in pages[:10]:
-            entry = E.entry(E.title(info.title), E.id(info.url), E.link(href=info.url))
+        for last_mod, url, page in sorted(self.pages, key=lambda i: i[0], reverse=True)[:10]:
+            entry = E.entry(E.title(page.title), E.id(url), E.link(href=url))
 
-            if info.description:
-                entry.append(E.summary(info.description))
+            if page.description:
+                entry.append(E.summary(page.description))
 
-            if info.content:
-                entry.append(E.content(info.content, type="html"))
+            if page.articleBody:
+                entry.append(E.content(page.articleBody, type="html"))
 
-            if info.last_modified:
-                entry.append(E.updated(info.last_modified.isoformat()))
+            if page.last_modified:
+                entry.append(E.updated(page.last_modified.isoformat()))
 
             feed.append(entry)
 
@@ -140,47 +120,34 @@ class Atom(RSS):
 
 
 def main():
-    config = RawConfigParser()
-    config.read([".simple-cloud-site.cfg"])
-
-    source_dir = os.path.realpath(os.curdir)
-    base_url = config.get('site', 'base_url')
+    site = load_site()
 
     site_info = {
-        'site_url': base_url,
-        'site_title': config.get('site', 'site_title'),
-        'site_description': config.get('site', 'site_description'),
-        'author_name': config.get('author', 'name'),
-        'author_email': config.get('author', 'email'),
+        'site_url': site.base_url,
+        'site_title': site.config.get('site', 'site_title'),
+        'site_description': site.config.get('site', 'site_description'),
+        'author_name': site.config.get('author', 'name'),
+        'author_email': site.config.get('author', 'email'),
     }
 
     sitemap = Sitemap(site_info)
     rss = RSS(site_info)
     atom = Atom(site_info)
 
-    urls = []
-    for f in find_html_files(source_dir):
-        path = os.path.relpath(f, start=source_dir)
-        if path.endswith("index.html"):
-            path = '%s/' % os.path.dirname(path)
+    for f in find_html_files(site.base_dir):
+        path = site.filename_to_url(f)
 
         if path == '/':
             continue  # Skip the index page
 
-        url = urljoin(base_url, path)
+        url = urljoin(site.base_url, path)
 
-        timestamp = None  # Fall back to file mtime? Seems noisy…
-        title = description = None
+        p = Page(f)
 
-        h = parse_html(f)
-
-        title = extract_title(h)
-        description = extract_description(h)
-        timestamp = extract_last_modified(h)
-
-        sitemap.add_page(url, h, last_modified=timestamp, title=title, description=description)
-        rss.add_page(url, h, last_modified=timestamp, title=title, description=description)
-        atom.add_page(url, h, last_modified=timestamp, title=title, description=description)
+        sitemap.add_page(url, p)
+        if p.is_blog_post:
+            rss.add_page(url, p)
+            atom.add_page(url, p)
 
     with open('sitemap.xml', 'wb') as f:
         f.write(sitemap.serialize())

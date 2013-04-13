@@ -1,15 +1,18 @@
-#!/usr/bin/env python
 # encoding: utf-8
 """HTML processing utilities"""
 from __future__ import absolute_import, print_function, unicode_literals
 
-from datetime import datetime, timezone
+from datetime import timezone
 from functools import wraps
+from subprocess import Popen, PIPE, check_call
 from warnings import warn
+import sys
 
 from lxml.etree import XPath
 from lxml.html import tostring, HTMLParser, parse as _html_parse
 from dateutil.parser import parse as parse_date
+
+from .utils import cached_property
 
 UTF8_PARSER = HTMLParser(encoding='utf-8')
 
@@ -48,37 +51,14 @@ def lxml_inner_html(elem):
     return ''.join(filter(None, html))
 
 
-BLOG_POST_XPATHS = [XPath(i) for i in ('/html/body[@itemtype="http://schema.org/BlogPosting"]', )]
-# TODO: Use custom xpath / CSS checks from config file?
-
-def is_blog_post(html):
-    return any(i(html) for i in BLOG_POST_XPATHS)
-
-
-TITLE_XPATHS = [XPath(i) for i in ('//*[@itemprop="title"]/text()', 'head/title/text()')]
-
-
-def extract_title(html):
-    for xpath in TITLE_XPATHS:
-        res = xpath(html)
-        if res:
-            return res[0].strip()
-
-
-DESCRIPTION_XPATHS = [XPath(i) for i in ('//*[@itemprop="description"]/text()',
-                                         'head/meta[@name="description"]/@content')]
-
-
-def extract_description(html):
-    for xpath in DESCRIPTION_XPATHS:
-        res = xpath(html)
-        if res:
-            return res[0].strip()
-
-
-TIMESTAMP_XPATHS = [XPath(i) for i in ('//*[@itemprop="dateModified"]/@datetime',
-                                       '//*[@itemprop="datePublished"]/@datetime',
-                                       '//*[@itemprop="dateCreated"]/@datetime')]
+def filename_or_document(f):
+    """Ensure that the calling function receives lxml document, parsing a filename if necessary"""
+    @wraps(f)
+    def inner(filename_or_doc, *args, **kwargs):
+        if not hasattr(filename_or_doc, "docinfo"):
+            filename_or_doc = parse_html(filename_or_doc)
+        return f(filename_or_doc, *args, **kwargs)
+    return inner
 
 
 def normalize_timestamp(f):
@@ -97,22 +77,133 @@ def normalize_timestamp(f):
     return inner
 
 
-@normalize_timestamp
-def extract_last_modified(html):
-    """Given an HTML ElementTree, returns the last modification date
-
-    Uses:
-        * schema.org dateModified/datePublished/dateCreated
-        * <meta http-equiv="last-modified">
-    """
-
-    # These use ISO-8601 format dates:
-    for i in TIMESTAMP_XPATHS:
-        res = i(html)
+def get_first_xpath(xpaths, doc):
+    """Return the first element matched by the provided list of XPATH expressions"""
+    for i in xpaths:
+        res = i(doc)
         if res:
-            return parse_date(res[0])
+            return res[0]
 
-    # This uses a different time format:
-    meta_equiv = html.xpath('/head/meta[@http-equiv="last-modified"]/@content')
-    if meta_equiv:
-        return datetime.strptime(meta_equiv, "%a, %d %b %Y %H:%M:%S %z")
+
+# TODO: Use custom xpath / CSS checks from config file?
+BLOG_POST_XPATHS = [XPath(i) for i in ('/html/body[@itemtype="http://schema.org/BlogPosting"]', )]
+TITLE_XPATHS = [XPath(i) for i in ('//*[@itemprop="title"]/text()', 'head/title/text()')]
+DESCRIPTION_XPATHS = [XPath(i) for i in ('//*[@itemprop="description"]/text()',
+                                         'head/meta[@name="description"]/@content')]
+
+DATE_MODIFIED_XPATHS = [XPath(i) for i in ('//*[@itemprop="dateModified"]/@datetime', )]
+DATE_CREATED_XPATHS = [XPath(i) for i in ('//*[@itemprop="dateCreated"]/@datetime', )]
+DATE_PUBLISHED_XPATHS = [XPath(i) for i in ('//*[@itemprop="datePublished"]/@datetime', )]
+TIMESTAMP_XPATHS = DATE_MODIFIED_XPATHS + DATE_PUBLISHED_XPATHS + DATE_CREATED_XPATHS
+
+
+class Page(object):
+    def __init__(self, filename_or_doc, filename=None):
+        self.filename = filename
+
+        if hasattr(filename_or_doc, "docinfo"):
+            self.html = filename_or_doc
+        else:
+            self.html = parse_html(filename_or_doc)
+            if isinstance(filename_or_doc, str):
+                self.filename = filename_or_doc
+            elif hasattr(filename_or_doc, "name"):
+                self.filename = filename_or_doc.name
+
+    @property
+    def href(self):
+        # BUG: decide how we're going to normalize these!
+        return self.filename
+
+    @cached_property
+    def is_blog_post(self):
+        return is_blog_post(self.html)
+
+    @cached_property
+    def title(self):
+        return extract_title(self.html)
+
+    @cached_property
+    def description(self):
+        return extract_description(self.html)
+
+    @cached_property
+    @normalize_timestamp
+    def date_created(self):
+        i = get_first_xpath(DATE_CREATED_XPATHS, self.html)
+        return parse_date(i) if i else None
+
+    @cached_property
+    @normalize_timestamp
+    def date_published(self):
+        i = get_first_xpath(DATE_PUBLISHED_XPATHS, self.html)
+        return parse_date(i) if i else None
+
+    @cached_property
+    @normalize_timestamp
+    def date_modified(self):
+        i = get_first_xpath(DATE_MODIFIED_XPATHS, self.html)
+        return parse_date(i) if i else None
+
+    @cached_property
+    @normalize_timestamp
+    def last_modified(self):
+        meta_equiv = self.html.xpath('//meta[@http-equiv="last-modified"]/@content')
+        if meta_equiv:
+            return parse_date(meta_equiv[0])
+
+    def get_publication_date(self):
+        return self.date_published or self.date_created or self.date_modified or self.last_modified
+
+    def get_modification_date(self):
+        dates = filter(None, (self.last_modified, self.date_published, self.date_modified, self.date_created))
+        return max(dates) if dates else None
+
+    # schema.org microdata accessors:
+    @cached_property
+    def articleBody(self):
+        body = self.html.xpath('//*[@itemprop="articleBody"]')
+        if body:
+            return lxml_inner_html(body[0]).strip()
+        else:
+            return ''
+
+
+@filename_or_document
+def is_blog_post(html):
+    return any(i(html) for i in BLOG_POST_XPATHS)
+
+
+@filename_or_document
+def extract_title(html):
+    for xpath in TITLE_XPATHS:
+        res = xpath(html)
+        if res:
+            return res[0].strip()
+
+
+@filename_or_document
+def extract_description(html):
+    for xpath in DESCRIPTION_XPATHS:
+        res = xpath(html)
+        if res:
+            return res[0].strip()
+
+
+def tidy(filename):
+    # This is an ugly travesty and depends on https://github.com/w3c/tidy-html5
+    # In its defense, it actually works at all which is more than can be said for html5lib, lxml3,
+    # BeautifulSoup, etc. and there are no Python 3 migration issues…
+    tidy = Popen(['tidy-html5', '-utf8', '-modify', '-quiet', '--tidy-mark', 'no',
+                  '--wrap', '0', '--indent', 'yes', '--indent-spaces', '4',
+                  filename],
+                 stderr=PIPE, stdout=PIPE)
+    stdout, stderr = tidy.communicate()
+
+    if stderr:
+        stderr = stderr.decode("utf-8").strip()
+        stderr = "\n".join("\t%s" % i.strip() for i in stderr.splitlines())
+        print("HTML tidy reported problems for %s:\n" % filename, stderr, file=sys.stderr)
+
+    check_call(['perl', '-p', '-i', '-e', 's|itemscope=""|itemscope|', filename])
+    # See: https://github.com/w3c/tidy-html5/pull/58
