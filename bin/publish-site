@@ -70,6 +70,10 @@ def main():
     for f in find_files(source_dir):
         target_path = f.replace(source_dir, '').lstrip("/")
 
+        # TODO: load ignore list from site config
+        if target_path.endswith(".scss"):
+            continue
+
         if target_path in remote_objects:
             # TODO: don't read the file twice:
             with open(f, "rb") as local_file:
