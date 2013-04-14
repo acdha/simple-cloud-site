@@ -58,7 +58,11 @@ def update_template(template_file, filename, site, blog_posts=None):
         .empty() \
         .append(original('*[itemprop="articleBody"]').children())
 
-    template('meta[name="description"]').attr('content', original_post.description or summary.text() or "")
+    desc = original_post.description or summary.text()
+    if desc:
+        template('meta[name="description"]').attr('content', desc)
+    else:
+        template('meta[name="description"]').remove()
 
     post_nav = template('#post-nav')
     if not blog_posts:
