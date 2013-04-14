@@ -100,9 +100,12 @@ TITLE_XPATHS = [XPath(i) for i in ('//*[@itemprop="title"]/text()', 'head/title/
 DESCRIPTION_XPATHS = [XPath(i) for i in ('//*[@itemprop="description"]/text()',
                                          'head/meta[@name="description"]/@content')]
 
-DATE_MODIFIED_XPATHS = [XPath(i) for i in ('//*[@itemprop="dateModified"]/@datetime', )]
-DATE_CREATED_XPATHS = [XPath(i) for i in ('//*[@itemprop="dateCreated"]/@datetime', )]
-DATE_PUBLISHED_XPATHS = [XPath(i) for i in ('//*[@itemprop="datePublished"]/@datetime', )]
+DATE_MODIFIED_XPATHS = [XPath(i) for i in ('//time[@itemprop="dateModified"]/@datetime',
+                                           '//meta[@itemprop="dateModified"]/@content', )]
+DATE_CREATED_XPATHS = [XPath(i) for i in ('//time[@itemprop="dateCreated"]/@datetime',
+                                          '//meta[@itemprop="dateCreated"]/@content',)]
+DATE_PUBLISHED_XPATHS = [XPath(i) for i in ('//time[@itemprop="datePublished"]/@datetime',
+                                            '//meta[@itemprop="datePublished"]/@content',)]
 TIMESTAMP_XPATHS = DATE_MODIFIED_XPATHS + DATE_PUBLISHED_XPATHS + DATE_CREATED_XPATHS
 
 
