@@ -9,7 +9,7 @@ from warnings import warn
 import sys
 
 from lxml.etree import XPath
-from lxml.html import tostring, HTMLParser, parse as _html_parse
+from lxml.html import tostring, HTMLParser, parse as _html_parse, fromstring as _html_fromstring
 from dateutil.parser import parse as parse_date
 
 from .utils import cached_property
@@ -26,6 +26,15 @@ def parse_html(file_like, **kwargs):
     """
 
     return _html_parse(file_like, parser=UTF8_PARSER, **kwargs)
+
+
+def html_from_string(string):
+    """Parse a string into an lxml fragment
+
+    Works around lxml's bug treating unicode strings as latin-1
+    """
+
+    return _html_fromstring(string, parser=UTF8_PARSER)
 
 
 def lxml_inner_html(elem):

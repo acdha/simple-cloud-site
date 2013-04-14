@@ -6,7 +6,7 @@ from lxml.html import tostring
 from pyquery import PyQuery
 
 from simple_cloud_site.files import find_recent_posts
-from simple_cloud_site.html import parse_html, lxml_inner_html, tidy
+from simple_cloud_site.html import parse_html, html_from_string, lxml_inner_html, tidy
 from simple_cloud_site.site import load_site
 
 
@@ -49,8 +49,15 @@ def main():
         else:
             p.find('.summary').remove()
 
-        p.find('.body').removeClass('placeholder') \
-            .html(post.articleBody)
+        # Work around https://github.com/gawel/pyquery/issues/31 by correctly parsing Unicode
+        # into an HTML Element instance rather than passing in the text directly.
+        body = p.find('.body').removeClass('placeholder').empty()
+        for i in PyQuery(html_from_string(post.articleBody)).contents():
+            if isinstance(i, str):
+                # Work around https://github.com/gawel/pyquery/issues/32 by forcing
+                # lxml.etree._ElementUnicodeResult into str:
+                i = str(i)
+            body.append(i)
 
         p.appendTo(post_list)
 
