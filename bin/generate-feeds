@@ -21,12 +21,12 @@ class Feed(object):
 
     def add_page(self, url, page):
         # Ensure that the values are always sortable numbers:
-        if not page.last_modified:
-            last_modified = 0
+        if not page.date_modified:
+            date_modified = 0
         else:
-            last_modified = page.last_modified.timestamp()
+            date_modified = page.date_modified.timestamp()
 
-        self.pages.append((last_modified, url, page))
+        self.pages.append((date_modified, url, page))
 
     def serialize(self):
         raise NotImplementedError
@@ -43,7 +43,7 @@ class Sitemap(Feed):
         for last_mod, url, page in self.pages:
             url_elem = E.url(E.loc(url))
             if last_mod:
-                url_elem.append(E.lastmod(page.last_modified.isoformat()))
+                url_elem.append(E.lastmod(page.date_modified.isoformat()))
             urlset.append(url_elem)
 
         return etree.tostring(urlset, pretty_print=True, encoding='utf-8')
@@ -55,7 +55,7 @@ class RSS(Feed):
             warn("Skipping %s: missing title" % url)
             return
 
-        if not page.last_modified:
+        if not page.date_modified:
             warn("%s: missing last modified timestamp" % url)
 
         super().add_page(url, page)
@@ -77,8 +77,8 @@ class RSS(Feed):
             if page.description:
                 item.append(E.description(page.description))
 
-            if page.last_modified:
-                item.append(E.pubDate(format_datetime(page.last_modified)))
+            if page.date_modified:
+                item.append(E.pubDate(format_datetime(page.date_modified)))
 
             channel.append(item)
 
@@ -100,7 +100,7 @@ class Atom(RSS):
 
         pages = sorted(self.pages, key=lambda i: i[0], reverse=True)
 
-        feed.append(E.updated(pages[0][2].last_modified.isoformat()))
+        feed.append(E.updated(pages[0][2].date_modified.isoformat()))
 
         for last_mod, url, page in sorted(self.pages, key=lambda i: i[0], reverse=True)[:10]:
             entry = E.entry(E.title(page.title), E.id(url), E.link(href=url))
@@ -111,8 +111,8 @@ class Atom(RSS):
             if page.articleBody:
                 entry.append(E.content(page.articleBody, type="html"))
 
-            if page.last_modified:
-                entry.append(E.updated(page.last_modified.isoformat()))
+            if page.date_modified:
+                entry.append(E.updated(page.date_modified.isoformat()))
 
             feed.append(entry)
 
@@ -134,20 +134,19 @@ def main():
     rss = RSS(site_info)
     atom = Atom(site_info)
 
-    for f in find_html_files(site.base_dir):
-        path = site.filename_to_url(f)
+    # TODO: Split sitemap / feed generation or impement lazy loading to avoid having to parse pages rather than read from the DB
+    for page in site.pages.get_all_pages():
+        path = site.filename_to_url(page.filename)
 
         if path == '/':
             continue  # Skip the index page
 
         url = urljoin(site.base_url, path)
 
-        p = Page(f)
-
-        sitemap.add_page(url, p)
-        if p.is_blog_post:
-            rss.add_page(url, p)
-            atom.add_page(url, p)
+        sitemap.add_page(url, page)
+        if page.is_blog_post:
+            rss.add_page(url, page)
+            atom.add_page(url, page)
 
     with open('sitemap.xml', 'wb') as f:
         f.write(sitemap.serialize())

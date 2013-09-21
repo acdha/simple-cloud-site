@@ -111,16 +111,39 @@ TIMESTAMP_XPATHS = DATE_MODIFIED_XPATHS + DATE_PUBLISHED_XPATHS + DATE_CREATED_X
 
 class Page(object):
     def __init__(self, filename_or_doc, filename=None):
-        self.filename = filename
+        if filename:
+            self.filename = filename
+        elif isinstance(filename_or_doc, str):
+            self.filename = filename_or_doc
+        elif hasattr(filename_or_doc, "name"):
+            self.filename = filename_or_doc.name
 
+        # If this has already been parsed, we'll load now. Otherwise we'll let .html lazy-load run on-demand
         if hasattr(filename_or_doc, "docinfo"):
             self.html = filename_or_doc
-        else:
-            self.html = parse_html(filename_or_doc)
-            if isinstance(filename_or_doc, str):
-                self.filename = filename_or_doc
-            elif hasattr(filename_or_doc, "name"):
-                self.filename = filename_or_doc.name
+
+    @classmethod
+    def from_cache(cls, data):
+        """Populates a page using cached attributes where possible"""
+
+        if 'filename' not in data:
+            raise ValueError("from_cache must receive at least the filename")
+
+        c = cls(data['filename'])
+
+        for k in cls.__dict__:
+            if k.startswith("_"):
+                continue
+
+            if k in data:
+                v = data[k]
+                c.__dict__[k] = v
+
+        return c
+
+    @cached_property
+    def html(self):
+        return parse_html(self.filename)
 
     @property
     def href(self):

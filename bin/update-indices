@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
+import logging
 import sys
 
 from lxml.html import tostring
 from pyquery import PyQuery
 
-from simple_cloud_site.files import find_recent_posts
 from simple_cloud_site.html import parse_html, html_from_string, lxml_inner_html, tidy
 from simple_cloud_site.site import load_site
 
@@ -15,7 +15,7 @@ def main():
 
     print("Updating indices under", site.base_dir)
 
-    recent_posts = find_recent_posts(site.base_dir, count=4)
+    recent_posts = site.pages.get_recent_posts(4)
 
     # TODO: read template name from a config file
     template = PyQuery(parse_html("_templates/index.html").getroot())
@@ -74,4 +74,6 @@ def main():
     # TODO: Repeat for sub directories?
 
 if __name__ == "__main__":
+    FORMAT = '%(levelname)s %(module)s:%(funcName)s %(message)s'
+    logging.basicConfig(format=FORMAT, level=logging.INFO)
     main()

@@ -9,7 +9,6 @@ import sys
 from lxml.html import tostring
 from pyquery import PyQuery
 
-from simple_cloud_site.files import find_blog_posts
 from simple_cloud_site.html import Page, parse_html, tidy
 from simple_cloud_site.site import load_site
 
@@ -119,7 +118,7 @@ if __name__ == "__main__":
         parser.error("%s does not exist" % args.template)
 
     site = load_site()
-    blog_posts = find_blog_posts(site.base_dir)
+    blog_posts = site.pages.get_blog_posts()
 
     for f in args.files:
         update_template(args.template, f, site, blog_posts=blog_posts)
