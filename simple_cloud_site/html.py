@@ -11,6 +11,7 @@ import sys
 from lxml.etree import XPath
 from lxml.html import tostring, HTMLParser, parse as _html_parse, fromstring as _html_fromstring
 from dateutil.parser import parse as parse_date
+from dateutil.tz import tzlocal
 
 from .utils import cached_property
 
@@ -80,7 +81,10 @@ def normalize_timestamp(f):
             if timestamp.tzinfo:
                 timestamp = timestamp.astimezone(timezone.utc)
             else:
-                warn("%s: extracted last modified time without a timezone: %s" % (f, timestamp))
+                local_tz = tzlocal()
+                warn("%s: last modified time did not specify timezone, assuming system: %s" % (f, timestamp))
+                timestamp = timestamp.replace(tzinfo=local_tz)
+
         return timestamp
 
     return inner
