@@ -75,9 +75,11 @@ def update_template(template_file, filename, site, blog_posts=None):
         prev_post = next_post = None
 
         for post in blog_posts:
-            if post.date_published < post_date and (not prev_post or post.date_published > prev_post.date_published):
+            pub_date = post.get_publication_date()
+
+            if pub_date < post_date and (not prev_post or pub_date > prev_post.date_published):
                 prev_post = post
-            elif post.date_published > post_date and (not next_post or post.date_published < next_post.date_published):
+            elif pub_date > post_date and (not next_post or pub_date < next_post.date_published):
                 next_post = post
 
         if not prev_post:
