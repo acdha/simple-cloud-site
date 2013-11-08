@@ -109,9 +109,13 @@ def update_template(template_file, filename, site, blog_posts=None):
 
     tidy(filename)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Apply a template to an HTML file')
     parser.add_argument('files', metavar="HTML", nargs="*")
+    parser.add_argument('--verbose', '-v', default=False, action="store_true")
+    parser.add_argument('--all-posts', default=False, action="store_true",
+                        help='Update all blog posts')
     parser.add_argument('--template', default="_templates/post.html",
                         help='Template filename (default: %(default)s)')
     args = parser.parse_args()
@@ -122,5 +126,12 @@ if __name__ == "__main__":
     site = load_site()
     blog_posts = site.pages.get_blog_posts()
 
-    for f in args.files:
+    if not args.all_posts:
+        files = args.files
+    else:
+        files = [i.filename for i in blog_posts]
+
+    for f in files:
+        if args.verbose:
+            print(f)
         update_template(args.template, f, site, blog_posts=blog_posts)
