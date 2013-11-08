@@ -2,15 +2,16 @@
 # encoding: utf-8
 from __future__ import absolute_import, print_function, unicode_literals
 
+import mimetypes
+import os
+import sys
 from configparser import RawConfigParser
 from hashlib import md5
 from queue import Queue
 from threading import Thread
-import os
-import sys
 
-from libcloud.storage.types import Provider, ContainerDoesNotExistError
 from libcloud.storage.providers import get_driver
+from libcloud.storage.types import ContainerDoesNotExistError, Provider
 
 from simple_cloud_site.files import find_files
 
@@ -83,7 +84,10 @@ def main():
                 if h.hexdigest() == remote_objects[target_path]:
                     continue
 
-        upload_queue.put({'object_name': target_path, 'file_path': f})
+        mime_type, encoding = mimetypes.guess_type(f)
+        if not mime_type:
+            mime_type = 'application/octet-stream'
+        upload_queue.put({'object_name': target_path, 'file_path': f, 'extra': {'content_type': mime_type}})
 
     print("Waiting for %d uploads to complete…" % upload_queue.qsize())
 
