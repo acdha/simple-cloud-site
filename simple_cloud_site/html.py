@@ -2,14 +2,17 @@
 """HTML processing utilities"""
 from __future__ import absolute_import, print_function, unicode_literals
 
+import logging
+import sys
 from datetime import timezone
 from functools import wraps
-from subprocess import Popen, PIPE, check_call
-from warnings import warn
-import sys
+from subprocess import check_call, PIPE, Popen
 
 from lxml.etree import XPath
-from lxml.html import tostring, HTMLParser, parse as _html_parse, fromstring as _html_fromstring
+from lxml.html import fromstring as _html_fromstring
+from lxml.html import parse as _html_parse
+from lxml.html import HTMLParser, tostring
+
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
 
@@ -82,7 +85,8 @@ def normalize_timestamp(f):
                 timestamp = timestamp.astimezone(timezone.utc)
             else:
                 local_tz = tzlocal()
-                warn("%s: last modified time did not specify timezone, assuming system: %s" % (f, timestamp))
+                logging.warn('last modified time did not specify timezone, assuming system: %s',
+                             timestamp)
                 timestamp = timestamp.replace(tzinfo=local_tz)
 
         return timestamp
@@ -104,13 +108,15 @@ TITLE_XPATHS = [XPath(i) for i in ('//*[@itemprop="title"]/text()', 'head/title/
 DESCRIPTION_XPATHS = [XPath(i) for i in ('//*[@itemprop="description"]/text()',
                                          'head/meta[@name="description"]/@content')]
 
+LAST_MODIFIED_XPATHS = [XPath('//meta[@http-equiv="last-modified"]/@content')]
+
 DATE_MODIFIED_XPATHS = [XPath(i) for i in ('//time[@itemprop="dateModified"]/@datetime',
                                            '//meta[@itemprop="dateModified"]/@content', )]
 DATE_CREATED_XPATHS = [XPath(i) for i in ('//time[@itemprop="dateCreated"]/@datetime',
                                           '//meta[@itemprop="dateCreated"]/@content',)]
 DATE_PUBLISHED_XPATHS = [XPath(i) for i in ('//time[@itemprop="datePublished"]/@datetime',
                                             '//meta[@itemprop="datePublished"]/@content',)]
-TIMESTAMP_XPATHS = DATE_MODIFIED_XPATHS + DATE_PUBLISHED_XPATHS + DATE_CREATED_XPATHS
+TIMESTAMP_XPATHS = LAST_MODIFIED_XPATHS + DATE_MODIFIED_XPATHS + DATE_PUBLISHED_XPATHS + DATE_CREATED_XPATHS
 
 
 class Page(object):
@@ -187,9 +193,9 @@ class Page(object):
     @cached_property
     @normalize_timestamp
     def last_modified(self):
-        meta_equiv = self.html.xpath('//meta[@http-equiv="last-modified"]/@content')
+        meta_equiv = get_first_xpath(LAST_MODIFIED_XPATHS, self.html)
         if meta_equiv:
-            return parse_date(meta_equiv[0])
+            return parse_date(meta_equiv)
 
     def get_publication_date(self):
         return self.date_published or self.date_created or self.date_modified or self.last_modified

@@ -1,37 +1,56 @@
 #!/usr/bin/env python
-"""Create or update an HTML file using a template"""
+#encoding: utf-8
+from __future__ import absolute_import, print_function, unicode_literals
 
-import argparse
+import logging
 import os
-import sys
 from datetime import datetime, timezone
-from warnings import warn
 
 from lxml.html import tostring
 from pyquery import PyQuery
+
 from simple_cloud_site.html import Page, parse_html, tidy
-from simple_cloud_site.site import load_site
 
 
-def apply_template(template_file, filename, site, blog_posts=None,
-                   update_timestamps=False):
-    template = PyQuery(parse_html(template_file).getroot())
-    original_post = Page(filename)
+def apply_template(template_filename, filename, site, blog_posts=None,
+                   tidy_html=False, update_timestamps=False):
+    """Create or update an HTML file using a template"""
+
+    logging.debug('Loading template file %s', template_filename)
+    template = PyQuery(parse_html(template_filename).getroot())  # TODO: cache parsed templates
+
+    if os.path.exists(filename):
+        logging.info('Loading HTML file %s', filename)
+        original_post = Page(filename)
+    else:
+        logging.info('Creating new HTML file %s', filename)
+        original_post = Page(template_filename)
+        update_timestamps = True
+
+        # We'll open the template file and prepare the destination:
+        output_dir = os.path.dirname(filename)
+        if not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+
     original = PyQuery(original_post.html.getroot())
 
     template('title,*[itemprop="title"]').removeClass('placeholder').text(original_post.title)
 
-    if update_timstamps:
-        now = datetime.now(timezone.utc)
+    logging.debug('Processing timestamps')
+
+    now = datetime.now(timezone.utc)
 
     for i in ('dateCreated', 'dateModified', 'datePublished'):
+        src_val = None
+
         j = original('*[itemprop="%s"]' % i)
 
-        if update_timestamps or not j:
-            j = now.isoformat()
+        if j:
+            src_val = j.attr('datetime' if j.is_('time') else 'content')
 
-        # TODO: refactor this into a utility method
-        src_val = j.attr('datetime' if j.is_('time') else 'content')
+        if update_timestamps or not src_val:
+            src_val = now.isoformat()
+
         target = template('*[itemprop="%s"]' % i)
         if target:
             target.attr('datetime' if target.is_('time') else 'content', src_val)
@@ -52,22 +71,26 @@ def apply_template(template_file, filename, site, blog_posts=None,
     template('meta[http-equiv="last-modified"]').attr('content',
                                                       last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT"))
 
+    logging.debug('Updating summary')
     summary = original('.summary').eq(0)
     if summary:
         template('.summary').removeClass('placeholder').empty().html(summary.html())
     else:
         template('.summary').remove()
 
+    logging.debug('Updating body')
     template('*[itemprop="articleBody"]').removeClass('placeholder') \
         .empty() \
         .append(original('*[itemprop="articleBody"]').children())
 
+    logging.debug('Updating meta description')
     desc = original_post.description or summary.text()
     if desc:
         template('meta[name="description"]').attr('content', desc)
     else:
         template('meta[name="description"]').remove()
 
+    logging.debug('Updating navigation')
     post_nav = template('#post-nav')
     if not blog_posts:
         post_nav.remove()
@@ -98,39 +121,13 @@ def apply_template(template_file, filename, site, blog_posts=None,
 
     orphans = template.find(".placeholder")
     if orphans:
-        print("Template contained unexpanded placeholders:", orphans, file=sys.stderr)
+        logging.warning('Template contained unexpanded placeholders: %s', orphans)
 
+    logging.info('Saving %s', filename)
     with open(filename, 'wb') as f:
         # We don't use template.outerHtml because that would lose the doctype
         f.write(tostring(template[0].getroottree(), method='html', encoding='utf-8'))
 
-    tidy(filename)
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Apply a template to an HTML file')
-    parser.add_argument('files', metavar="HTML", nargs="*")
-    parser.add_argument('--verbose', '-v', default=False, action="store_true")
-    parser.add_argument('--update-timestamps', default=False, action="store_true")
-    parser.add_argument('--all-posts', default=False, action="store_true",
-                        help='Update all blog posts')
-    parser.add_argument('--template', default="_templates/post.html",
-                        help='Template filename (default: %(default)s)')
-    args = parser.parse_args()
-
-    if not os.path.exists(args.template):
-        parser.error("%s does not exist" % args.template)
-
-    site = load_site()
-    blog_posts = site.pages.get_blog_posts()
-
-    if not args.all_posts:
-        files = args.files
-    else:
-        files = [i.filename for i in blog_posts]
-
-    for f in files:
-        if args.verbose:
-            print(f)
-        apply_template(args.template, f, site, blog_posts=blog_posts,
-                       update_timestamps=args.update_timestamps)
+    if tidy_html:
+        logging.info('Tidying HTML in %s', filename)
+        tidy(filename)
