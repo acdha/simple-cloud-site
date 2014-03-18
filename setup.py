@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='simple-cloud-site',
-    version='0.0.2',
+    version='0.0.3',
     url='http://github.com/acdha/simple-cloud-site/',
     license='CC0',
     author='Chris Adams',
@@ -13,7 +13,7 @@ setup(
     author_email='chris@improbable.org',
     description='Tools for working with pure HTML static sites',
     long_description=open('README.rst', 'r', encoding='utf-8').read(),
-    packages=['simple_cloud_site'],
+    packages=['simple_cloud_site', 'simple_cloud_site.commands'],
     include_package_data=True,
     platforms='any',
     classifiers=[
