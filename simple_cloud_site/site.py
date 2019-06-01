@@ -75,10 +75,13 @@ sqlite3.register_converter("timestamp", tz_aware_timestamp_adapter)
 
 
 class PageCache(object):
-    """Track page metadata information in a local database to avoid expensive operations
+    """
+    Track page metadata information in a local database to avoid expensive
+    operations
 
-    Operations like MD5 sums or extracting page titles, descriptions, dates, etc. require a significant amount
-    of overhead. We can cache these values for quick access by checking the file inode + mtime.
+    Operations like MD5 sums or extracting page titles, descriptions, dates,
+    etc. require a significant amount of overhead. We can cache these values for
+    quick access by checking the file inode + mtime.
     """
 
     def __init__(self, base_dir):
@@ -141,9 +144,14 @@ class PageCache(object):
                 page = Page(html_file)
 
                 cursor.execute(
-                    """INSERT INTO pages (filename, inode, mtime, is_blog_post, title, description,
-                                                     date_created, date_modified, date_published)
-                                        VALUES (?,?,?,?,?,?,?,?,?)""",
+                    """INSERT INTO pages
+                            (
+                                filename, inode, mtime,
+                                is_blog_post,
+                                title, description,
+                                date_created, date_modified, date_published
+                            )
+                        VALUES (?,?,?,?,?,?,?,?,?)""",
                     (
                         html_file,
                         st.st_ino,
