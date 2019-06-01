@@ -30,9 +30,11 @@ class Feed(object):
 
 class Sitemap(Feed):
     def serialize(self):
-        E = objectify.ElementMaker(annotate=False,
-                                   namespace='http://www.sitemaps.org/schemas/sitemap/0.9',
-                                   nsmap={None: 'http://www.sitemaps.org/schemas/sitemap/0.9'})
+        E = objectify.ElementMaker(
+            annotate=False,
+            namespace="http://www.sitemaps.org/schemas/sitemap/0.9",
+            nsmap={None: "http://www.sitemaps.org/schemas/sitemap/0.9"},
+        )
 
         urlset = E.urlset()
 
@@ -42,7 +44,7 @@ class Sitemap(Feed):
                 url_elem.append(E.lastmod(page.date_modified.isoformat()))
             urlset.append(url_elem)
 
-        return etree.tostring(urlset, pretty_print=True, encoding='utf-8')
+        return etree.tostring(urlset, pretty_print=True, encoding="utf-8")
 
 
 class RSS(Feed):
@@ -57,18 +59,30 @@ class RSS(Feed):
         super().add_page(url, page)
 
     def serialize(self):
-        E = objectify.ElementMaker(annotate=False, nsmap={"atom": "http://www.w3.org/2005/Atom"})
+        E = objectify.ElementMaker(
+            annotate=False, nsmap={"atom": "http://www.w3.org/2005/Atom"}
+        )
 
-        channel = E.channel(E.title(self.metadata['site_title']),
-                            E.link(self.metadata['site_url']),
-                            E.description(self.metadata['site_description']))
+        channel = E.channel(
+            E.title(self.metadata["site_title"]),
+            E.link(self.metadata["site_url"]),
+            E.description(self.metadata["site_description"]),
+        )
 
-        channel.append(etree.Element("{http://www.w3.org/2005/Atom}link", rel="self",
-                                     href=urljoin(self.metadata['site_url'], "/feeds/all.atom")))
+        channel.append(
+            etree.Element(
+                "{http://www.w3.org/2005/Atom}link",
+                rel="self",
+                href=urljoin(self.metadata["site_url"], "/feeds/all.atom"),
+            )
+        )
 
-        for last_mod, url, page in sorted(self.pages, key=lambda i: i[0], reverse=True)[:10]:
-            item = E.item(E.title(page.title), E.link(url),
-                          E.guid(url, isPermaLink="true"))
+        for last_mod, url, page in sorted(self.pages, key=lambda i: i[0], reverse=True)[
+            :10
+        ]:
+            item = E.item(
+                E.title(page.title), E.link(url), E.guid(url, isPermaLink="true")
+            )
 
             if page.description:
                 item.append(E.description(page.description))
@@ -80,25 +94,37 @@ class RSS(Feed):
 
         rss = E.rss(channel, version="2.0")
 
-        return etree.tostring(rss, pretty_print=True, encoding='utf-8', xml_declaration=True)
+        return etree.tostring(
+            rss, pretty_print=True, encoding="utf-8", xml_declaration=True
+        )
 
 
 class Atom(RSS):
     def serialize(self):
-        E = objectify.ElementMaker(annotate=False, nsmap={None: "http://www.w3.org/2005/Atom"})
+        E = objectify.ElementMaker(
+            annotate=False, nsmap={None: "http://www.w3.org/2005/Atom"}
+        )
 
-        feed = E.feed(E.title(self.metadata['site_title']),
-                      E.id(self.metadata['site_url']),
-                      E.link(rel="self", href=urljoin(self.metadata['site_url'], "/feeds/all.atom")),
-                      E.subtitle(self.metadata['site_description']),
-                      E.author(E.name(self.metadata['author_name']),
-                               E.email(self.metadata['author_email'])))
+        feed = E.feed(
+            E.title(self.metadata["site_title"]),
+            E.id(self.metadata["site_url"]),
+            E.link(
+                rel="self", href=urljoin(self.metadata["site_url"], "/feeds/all.atom")
+            ),
+            E.subtitle(self.metadata["site_description"]),
+            E.author(
+                E.name(self.metadata["author_name"]),
+                E.email(self.metadata["author_email"]),
+            ),
+        )
 
         pages = sorted(self.pages, key=lambda i: i[0], reverse=True)
 
         feed.append(E.updated(pages[0][2].date_modified.isoformat()))
 
-        for last_mod, url, page in sorted(self.pages, key=lambda i: i[0], reverse=True)[:10]:
+        for last_mod, url, page in sorted(self.pages, key=lambda i: i[0], reverse=True)[
+            :10
+        ]:
             entry = E.entry(E.title(page.title), E.id(url), E.link(href=url))
 
             if page.description:
@@ -112,4 +138,6 @@ class Atom(RSS):
 
             feed.append(entry)
 
-        return etree.tostring(feed, pretty_print=True, encoding='utf-8', xml_declaration=True)
+        return etree.tostring(
+            feed, pretty_print=True, encoding="utf-8", xml_declaration=True
+        )

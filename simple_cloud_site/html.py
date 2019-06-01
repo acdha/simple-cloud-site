@@ -6,19 +6,19 @@ import logging
 import sys
 from datetime import timezone
 from functools import wraps
-from subprocess import check_call, PIPE, Popen
-
-from lxml.etree import XPath
-from lxml.html import fromstring as _html_fromstring
-from lxml.html import parse as _html_parse
-from lxml.html import HTMLParser, tostring
+from subprocess import PIPE, Popen, check_call
 
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
+from lxml.etree import XPath
+from lxml.html import HTMLParser
+from lxml.html import fromstring as _html_fromstring
+from lxml.html import parse as _html_parse
+from lxml.html import tostring
 
 from .utils import cached_property
 
-UTF8_PARSER = HTMLParser(encoding='utf-8')
+UTF8_PARSER = HTMLParser(encoding="utf-8")
 
 
 def parse_html(file_like, **kwargs):
@@ -55,27 +55,33 @@ def lxml_inner_html(elem):
       bar<b>baaz</b>quux
     """
 
-    html = [elem.text or '']
+    html = [elem.text or ""]
 
     for i in elem.getchildren():
-        serialized = tostring(i, method='html', encoding='unicode')
+        serialized = tostring(i, method="html", encoding="unicode")
         html.append(serialized)
 
-    return ''.join(filter(None, html))
+    return "".join(filter(None, html))
 
 
 def filename_or_document(f):
-    """Ensure that the calling function receives lxml document, parsing a filename if necessary"""
+    """
+    Ensure that the calling function receives lxml document, parsing a filename
+    if necessary
+    """
+
     @wraps(f)
     def inner(filename_or_doc, *args, **kwargs):
         if not hasattr(filename_or_doc, "docinfo"):
             filename_or_doc = parse_html(filename_or_doc)
         return f(filename_or_doc, *args, **kwargs)
+
     return inner
 
 
 def normalize_timestamp(f):
     """Ensure that the decorated function returns UTC datetime or None"""
+
     @wraps(f)
     def inner(*args, **kwargs):
         timestamp = f(*args, **kwargs)
@@ -85,8 +91,10 @@ def normalize_timestamp(f):
                 timestamp = timestamp.astimezone(timezone.utc)
             else:
                 local_tz = tzlocal()
-                logging.warn('last modified time did not specify timezone, assuming system: %s',
-                             timestamp)
+                logging.warn(
+                    "last modified time did not specify timezone, assuming system: %s",
+                    timestamp,
+                )
                 timestamp = timestamp.replace(tzinfo=local_tz)
 
         return timestamp
@@ -103,20 +111,49 @@ def get_first_xpath(xpaths, doc):
 
 
 # TODO: Use custom xpath / CSS checks from config file?
-BLOG_POST_XPATHS = [XPath(i) for i in ('/html/body[@itemtype="http://schema.org/BlogPosting"]', )]
-TITLE_XPATHS = [XPath(i) for i in ('//*[@itemprop="title"]/text()', 'head/title/text()')]
-DESCRIPTION_XPATHS = [XPath(i) for i in ('//*[@itemprop="description"]/text()',
-                                         'head/meta[@name="description"]/@content')]
+BLOG_POST_XPATHS = [
+    XPath(i) for i in ('/html/body[@itemtype="http://schema.org/BlogPosting"]',)
+]
+TITLE_XPATHS = [
+    XPath(i) for i in ('//*[@itemprop="title"]/text()', "head/title/text()")
+]
+DESCRIPTION_XPATHS = [
+    XPath(i)
+    for i in (
+        '//*[@itemprop="description"]/text()',
+        'head/meta[@name="description"]/@content',
+    )
+]
 
 LAST_MODIFIED_XPATHS = [XPath('//meta[@http-equiv="last-modified"]/@content')]
 
-DATE_MODIFIED_XPATHS = [XPath(i) for i in ('//time[@itemprop="dateModified"]/@datetime',
-                                           '//meta[@itemprop="dateModified"]/@content', )]
-DATE_CREATED_XPATHS = [XPath(i) for i in ('//time[@itemprop="dateCreated"]/@datetime',
-                                          '//meta[@itemprop="dateCreated"]/@content',)]
-DATE_PUBLISHED_XPATHS = [XPath(i) for i in ('//time[@itemprop="datePublished"]/@datetime',
-                                            '//meta[@itemprop="datePublished"]/@content',)]
-TIMESTAMP_XPATHS = LAST_MODIFIED_XPATHS + DATE_MODIFIED_XPATHS + DATE_PUBLISHED_XPATHS + DATE_CREATED_XPATHS
+DATE_MODIFIED_XPATHS = [
+    XPath(i)
+    for i in (
+        '//time[@itemprop="dateModified"]/@datetime',
+        '//meta[@itemprop="dateModified"]/@content',
+    )
+]
+DATE_CREATED_XPATHS = [
+    XPath(i)
+    for i in (
+        '//time[@itemprop="dateCreated"]/@datetime',
+        '//meta[@itemprop="dateCreated"]/@content',
+    )
+]
+DATE_PUBLISHED_XPATHS = [
+    XPath(i)
+    for i in (
+        '//time[@itemprop="datePublished"]/@datetime',
+        '//meta[@itemprop="datePublished"]/@content',
+    )
+]
+TIMESTAMP_XPATHS = (
+    LAST_MODIFIED_XPATHS
+    + DATE_MODIFIED_XPATHS
+    + DATE_PUBLISHED_XPATHS
+    + DATE_CREATED_XPATHS
+)
 
 
 class Page(object):
@@ -128,7 +165,8 @@ class Page(object):
         elif hasattr(filename_or_doc, "name"):
             self.filename = filename_or_doc.name
 
-        # If this has already been parsed, we'll load now. Otherwise we'll let .html lazy-load run on-demand
+        # If this has already been parsed, we'll load now. Otherwise we'll let
+        # .html lazy-load run on-demand
         if hasattr(filename_or_doc, "docinfo"):
             self.html = filename_or_doc
 
@@ -136,10 +174,10 @@ class Page(object):
     def from_cache(cls, data):
         """Populates a page using cached attributes where possible"""
 
-        if 'filename' not in data:
+        if "filename" not in data:
             raise ValueError("from_cache must receive at least the filename")
 
-        c = cls(data['filename'])
+        c = cls(data["filename"])
 
         for k in cls.__dict__:
             if k.startswith("_"):
@@ -198,10 +236,23 @@ class Page(object):
             return parse_date(meta_equiv)
 
     def get_publication_date(self):
-        return self.date_published or self.date_created or self.date_modified or self.last_modified
+        return (
+            self.date_published
+            or self.date_created
+            or self.date_modified
+            or self.last_modified
+        )
 
     def get_modification_date(self):
-        dates = filter(None, (self.last_modified, self.date_published, self.date_modified, self.date_created))
+        dates = filter(
+            None,
+            (
+                self.last_modified,
+                self.date_published,
+                self.date_modified,
+                self.date_created,
+            ),
+        )
         return max(dates) if dates else None
 
     # schema.org microdata accessors:
@@ -211,7 +262,7 @@ class Page(object):
         if body:
             return lxml_inner_html(body[0]).strip()
         else:
-            return ''
+            return ""
 
 
 @filename_or_document
@@ -237,18 +288,36 @@ def extract_description(html):
 
 def tidy(filename):
     # This is an ugly travesty and depends on https://github.com/w3c/tidy-html5
-    # In its defense, it actually works at all which is more than can be said for html5lib, lxml3,
-    # BeautifulSoup, etc. and there are no Python 3 migration issues…
-    tidy = Popen(['tidy-html5', '-utf8', '-modify', '-quiet', '--tidy-mark', 'no',
-                  '--wrap', '0', '--indent', 'yes', '--indent-spaces', '4',
-                  filename],
-                 stderr=PIPE, stdout=PIPE)
+    # In its defense, it actually works at all which is more than can be said
+    # for html5lib, lxml3, BeautifulSoup, etc. and there are no Python 3
+    # migration issues…
+    tidy = Popen(
+        [
+            "tidy-html5",
+            "-utf8",
+            "-modify",
+            "-quiet",
+            "--tidy-mark",
+            "no",
+            "--wrap",
+            "0",
+            "--indent",
+            "yes",
+            "--indent-spaces",
+            "4",
+            filename,
+        ],
+        stderr=PIPE,
+        stdout=PIPE,
+    )
     stdout, stderr = tidy.communicate()
 
     if stderr:
         stderr = stderr.decode("utf-8").strip()
         stderr = "\n".join("\t%s" % i.strip() for i in stderr.splitlines())
-        print("HTML tidy reported problems for %s:\n" % filename, stderr, file=sys.stderr)
+        print(
+            "HTML tidy reported problems for %s:\n" % filename, stderr, file=sys.stderr
+        )
 
-    check_call(['perl', '-p', '-i', '-e', 's|itemscope=""|itemscope|', filename])
+    check_call(["perl", "-p", "-i", "-e", 's|itemscope=""|itemscope|', filename])
     # See: https://github.com/w3c/tidy-html5/pull/58
