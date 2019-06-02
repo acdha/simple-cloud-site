@@ -2,34 +2,42 @@
 # encoding: utf-8
 from __future__ import absolute_import, print_function, unicode_literals
 
-from collections import deque
+from collections import deque, namedtuple
 from email.utils import format_datetime
 from urllib.parse import urljoin
 from warnings import warn
 
 from lxml import etree, objectify
 
+FeedEntry = namedtuple("FeedEntry", ["last_modified", "url", "page"])
 
-class Feed(object):
+
+class FeedMaker(object):
     def __init__(self, metadata):
         self.pages = deque()
         self.metadata = metadata
 
     def add_page(self, url, page):
-        # Ensure that the values are always sortable numbers:
+        if not page.title:
+            warn("Skipping %s: missing title" % url)
+            return
+
         if not page.date_modified:
-            date_modified = 0
-        else:
-            date_modified = page.date_modified.timestamp()
+            warn("Skipping %s: missing last modified timestamp" % url)
+            return
 
-        self.pages.append((date_modified, url, page))
+        self.pages.append(FeedEntry(page.date_modified.timestamp(), url, page))
 
-    def serialize(self):
-        raise NotImplementedError
+    def get_blog_pages(self):
+        # Returns a sorted list of pages which have is_blog_post = true
 
+        if not hasattr(self, "blog_pages"):
+            self.blog_pages = [i for i in self.pages if i.page.is_blog_post]
+            self.blog_pages.sort(key=lambda i: i[0], reverse=True)
 
-class Sitemap(Feed):
-    def serialize(self):
+        return self.blog_pages
+
+    def generate_sitemap(self, file_handle):
         E = objectify.ElementMaker(
             annotate=False,
             namespace="http://www.sitemaps.org/schemas/sitemap/0.9",
@@ -44,21 +52,9 @@ class Sitemap(Feed):
                 url_elem.append(E.lastmod(page.date_modified.isoformat()))
             urlset.append(url_elem)
 
-        return etree.tostring(urlset, pretty_print=True, encoding="utf-8")
+        file_handle.write(etree.tostring(urlset, pretty_print=True, encoding="utf-8"))
 
-
-class RSS(Feed):
-    def add_page(self, url, page):
-        if not page.title:
-            warn("Skipping %s: missing title" % url)
-            return
-
-        if not page.date_modified:
-            warn("%s: missing last modified timestamp" % url)
-
-        super().add_page(url, page)
-
-    def serialize(self):
+    def generate_rss(self, file_handle):
         E = objectify.ElementMaker(
             annotate=False, nsmap={"atom": "http://www.w3.org/2005/Atom"}
         )
@@ -77,9 +73,7 @@ class RSS(Feed):
             )
         )
 
-        for last_mod, url, page in sorted(self.pages, key=lambda i: i[0], reverse=True)[
-            :10
-        ]:
+        for last_mod, url, page in self.get_blog_pages()[:10]:
             item = E.item(
                 E.title(page.title), E.link(url), E.guid(url, isPermaLink="true")
             )
@@ -94,13 +88,13 @@ class RSS(Feed):
 
         rss = E.rss(channel, version="2.0")
 
-        return etree.tostring(
-            rss, pretty_print=True, encoding="utf-8", xml_declaration=True
+        file_handle.write(
+            etree.tostring(
+                rss, pretty_print=True, encoding="utf-8", xml_declaration=True
+            )
         )
 
-
-class Atom(RSS):
-    def serialize(self):
+    def generate_atom(self, file_handle):
         E = objectify.ElementMaker(
             annotate=False, nsmap={None: "http://www.w3.org/2005/Atom"}
         )
@@ -120,11 +114,10 @@ class Atom(RSS):
 
         pages = sorted(self.pages, key=lambda i: i[0], reverse=True)
 
-        feed.append(E.updated(pages[0][2].date_modified.isoformat()))
+        if pages:
+            feed.append(E.updated(pages[0][2].date_modified.isoformat()))
 
-        for last_mod, url, page in sorted(self.pages, key=lambda i: i[0], reverse=True)[
-            :10
-        ]:
+        for last_mod, url, page in self.get_blog_pages()[:10]:
             entry = E.entry(E.title(page.title), E.id(url), E.link(href=url))
 
             if page.description:
@@ -138,6 +131,8 @@ class Atom(RSS):
 
             feed.append(entry)
 
-        return etree.tostring(
-            feed, pretty_print=True, encoding="utf-8", xml_declaration=True
+        return file_handle.write(
+            etree.tostring(
+                feed, pretty_print=True, encoding="utf-8", xml_declaration=True
+            )
         )

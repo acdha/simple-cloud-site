@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 
 from cliff.command import Command
 
-from simple_cloud_site.feeds import RSS, Atom, Sitemap
+from simple_cloud_site.feeds import FeedMaker
 from simple_cloud_site.site import load_site
 
 
@@ -23,11 +23,8 @@ class GenerateFeeds(Command):
             "author_email": site.config.get("author", "email"),
         }
 
-        sitemap = Sitemap(site_info)
-        rss = RSS(site_info)
-        atom = Atom(site_info)
+        feed_maker = FeedMaker(site_info)
 
-        # TODO: Split sitemap / feed generation or impement lazy loading to avoid having to parse pages rather than read from the DB
         for page in site.pages.get_all_pages():
             path = site.filename_to_url(page.filename)
 
@@ -36,16 +33,13 @@ class GenerateFeeds(Command):
 
             url = urljoin(site.base_url, path)
 
-            sitemap.add_page(url, page)
-            if page.is_blog_post:
-                rss.add_page(url, page)
-                atom.add_page(url, page)
+            feed_maker.add_page(url, page)
 
         with open("sitemap.xml", "wb") as f:
-            f.write(sitemap.serialize())
+            feed_maker.generate_sitemap(f)
 
         with open("feeds/all.rss", "wb") as f:
-            f.write(rss.serialize())
+            feed_maker.generate_rss(f)
 
         with open("feeds/all.atom", "wb") as f:
-            f.write(atom.serialize())
+            feed_maker.generate_atom(f)
