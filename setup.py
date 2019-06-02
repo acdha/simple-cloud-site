@@ -5,10 +5,11 @@ from setuptools import setup
 
 setup(
     name="simple-cloud-site",
-    version="0.0.3",
     url="http://github.com/acdha/simple-cloud-site/",
     license="CC0",
     author="Chris Adams",
+    use_scm_version=True,
+    setup_requires=["setuptools_scm"],
     install_requires=["cliff", "lxml", "pyquery", "python-dateutil", "apache-libcloud"],
     author_email="chris@improbable.org",
     description="Tools for working with pure HTML static sites",
