@@ -3,7 +3,21 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import os
 
-IGNORE_DIRECTORIES = [".git", ".hg", ".svn", "_templates"]
+IGNORE_DIRECTORIES = [
+    "_templates",
+    ".git",
+    ".hg",
+    ".svn",
+    "archive",
+    "build",
+    "data",
+    "dist",
+    "feeds",
+    "node_modules",
+    "static",
+    "temp",
+    "tmp",
+]
 
 
 def find_files(source_dir):
