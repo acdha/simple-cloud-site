@@ -5,5 +5,5 @@ verify_ssl = true
 
 [dev-packages]
 isort = "*"
-black = "==19.3b0"
+black = "==24.3.0"
 flake8 = "*"
