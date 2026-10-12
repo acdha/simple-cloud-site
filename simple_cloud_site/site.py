@@ -72,8 +72,7 @@ class PageCache(object):
         with self.conn as c:
             # FIXME: schema check!
 
-            c.execute(
-                """CREATE TABLE IF NOT EXISTS pages (
+            c.execute("""CREATE TABLE IF NOT EXISTS pages (
                              filename VARCHAR(512) PRIMARY KEY,
                              inode INTEGER,
                              mtime INTEGER,
@@ -83,8 +82,7 @@ class PageCache(object):
                              date_created TIMESTAMP,
                              date_modified TIMESTAMP,
                              date_published TIMESTAMP
-                         )"""
-            )
+                         )""")
 
     def index_site(self):
         with self.conn as c:
@@ -154,10 +152,7 @@ class PageCache(object):
     def get_recent_posts(self, count=10):
         with self.conn as conn:
             c = conn.cursor()
-            for r in c.execute(
-                """SELECT * FROM pages WHERE is_blog_post = 1
+            for r in c.execute("""SELECT * FROM pages WHERE is_blog_post = 1
                                     ORDER BY date_published DESC
-                                    LIMIT %s"""
-                % count
-            ):
+                                    LIMIT %s""" % count):
                 yield Page.from_cache(dict(r))
