@@ -1,5 +1,6 @@
 # encoding: utf-8
 """HTML processing utilities"""
+
 from __future__ import absolute_import, print_function, unicode_literals
 
 import logging
@@ -11,10 +12,9 @@ from subprocess import PIPE, Popen, check_call
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
 from lxml.etree import XPath
-from lxml.html import HTMLParser
+from lxml.html import HTMLParser, tostring
 from lxml.html import fromstring as _html_fromstring
 from lxml.html import parse as _html_parse
-from lxml.html import tostring
 
 from .utils import cached_property
 

@@ -1,5 +1,6 @@
 # encoding: utf-8
 """Publish the local directory"""
+
 from __future__ import absolute_import, print_function, unicode_literals
 
 import logging
