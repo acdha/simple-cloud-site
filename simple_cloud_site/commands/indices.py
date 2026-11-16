@@ -1,5 +1,6 @@
 # encoding: utf-8
 """Generate index.html file"""
+
 # FIXME: recursively update subdirectories
 from __future__ import absolute_import, print_function, unicode_literals
 
